@@ -1,0 +1,222 @@
+import pandas as pd
+import numpy as np
+from matplotlib import pyplot as plt
+import string
+import sklearn.preprocessing as preprocessing
+from sklearn.model_selection import train_test_split
+from sklearn.neighbors import KNeighborsClassifier
+from sklearn import metrics
+from sklearn.model_selection import cross_val_score
+from sklearn.model_selection import GridSearchCV
+from sklearn.metrics import accuracy_score, recall_score, precision_score, f1_score
+
+#Create df:
+df = pd.read_csv('profiles.csv')
+
+#Columns
+print('Columns for the profiles df: ')
+print(' ')
+print(df.columns)
+print(' ')
+
+#Histogram of Age
+plt.hist(df.age, bins=20)
+plt.xlabel("Age")
+plt.ylabel("Frequency")
+plt.xlim(16, 80)
+##plt.show()
+
+#Cleaning Zodiac and Religion Column
+df['sign_only'] = df.sign.str.split(' ').str.get(0)
+df['religion_only'] = df.religion.str.split(' ').str.get(0)
+
+##print(df.sign_only.value_counts()) #test#
+
+#Mapping user responses to numbers 
+sign_mapping = {"aquarius": 0, "pisces": 1, "aries": 2, "taurus": 3, "gemini": 4, "cancer": 5, "leo": 6, "virgo": 7, "libra": 8, "scorpio": 9, "sagittarious": 10, "capricorn": 11}
+df['sign_code'] = df.sign.map(sign_mapping)
+#
+drink_mapping = {"not at all": 0, "rarely": 1, "socially": 2, "often": 3, "very often": 4, "desperately": 5}
+df["drinks_code"] = df.drinks.map(drink_mapping)
+#
+smoke_mapping = {"not": 0, "sometimes": 1, "when drinking": 2, "trying to quit": 3, "yes": 4}
+df["smokes_code"] = df.smokes.map(smoke_mapping)
+#
+drug_mapping = {"never": 0, "sometimes": 1, "often": 2}
+df["drugs_code"] = df.drugs.map(drug_mapping)
+#
+religion_mapping = {"atheism": 0,"hinduism": 1,"islam": 2,"judaism": 3,"christianity": 4,"catholicism": 5,"buddhism": 6,"agnosticism": 7,"other": 8}
+df["religion_code"] = df.religion_only.map(religion_mapping)
+#
+sex_mapping = {"m": 0,"f": 1}
+df["sex_code"] = df.sex.map(sex_mapping)
+#
+body_type_mapping = {"used up": 0,"skinny": 1,"thin": 2,"fit": 3,"average": 4,"athletic": 5,"jacked": 6,"full figured": 7,"a little extra": 8,"curvy": 9,"overweight": 10,"rather not say": 11}
+df["body_code"] = df.body_type.map(body_type_mapping)
+#
+education_mapping = {"graduated from college/university": 3,"graduated from masters program": 4,"working on college/university": 2,"working on masters program": 4,"graduated from two-year college": 3,
+                     "graduated from high school": 1,"graduated from ph.d program": 5,"graduated from law school": 5,"working on two-year college": 2,"dropped out of college/university": 1,"working on ph.d program": 5,
+                     "college/university": 3,"graduated from space camp": 0,"dropped out of space camp": 0,"graduated from med school": 5,"working on space camp": 0,"working on law school": 4,"two-year college": 3,
+                     "working on med school": 4,"dropped out of two-year college": 2,"dropped out of masters program": 3,"masters program": 4,"dropped out of ph.d program": 4,"dropped out of high school": 0,"high school": 1,
+                     "working on high school": 0,"space camp": 0,"ph.d program": 5,"law school": 5,"dropped out of law school": 4,"dropped out of med school": 4,"med school": 5
+                     }
+df["edu_code"] = df.education.map(education_mapping)
+#
+diet_mapping = {"vegan": 0,"mostly vegan": 0,"strictly vegan": 0,"vegetarian": 1,"mostly vegetarian": 1,"strictly vegetarian": 1,"halal": 2,"mostly halal": 2,"strictly halal": 2,"kosher": 3,"mostly kosher": 3,"strictly kosher": 3, "anything": 4, "mostly anything": 4, "strictly anything": 4, "strictly other": 5, "mostly other": 5, "other": 5}
+df["diet_code"] = df.diet.map(diet_mapping)
+
+#Cleaning Essay responses
+essay_cols = ['essay0', 'essay1', 'essay2', 'essay3', 'essay4', 'essay5', 'essay6', 'essay7', 'essay8', 'essay9']
+
+df[essay_cols] = df[essay_cols].replace(np.nan, '', regex=True)
+df[essay_cols] = df[essay_cols].replace('<br', '', regex=True)
+df[essay_cols] = df[essay_cols].replace('/', ' ', regex=True)
+
+all_essays = df[essay_cols].apply(lambda x: ' '.join(x), axis=1)
+all_essays = all_essays.apply(lambda x: x.lower())
+all_essays = all_essays.apply(lambda x: x.translate(str.maketrans('', '', string.punctuation)))
+
+df['essay_len'] = all_essays.apply(lambda x: len(x))
+##print(df['essay_len'].head)
+
+#Essay count functions
+def word_count(lst):
+    words = lst.split()
+    if not len(words):
+        return 0
+    else:
+        return float(words.count('me')+words.count('i')) / len(words)
+
+def avg_wlen(lst):
+    words = lst.split()
+    if not len(words):
+        return 0
+    else:
+        return float(sum(len(word) for word in words)) / len(words)
+df['essay_avg_wlen'] = all_essays.apply(lambda x: avg_wlen(x))
+df['essay_me_i_count'] = all_essays.apply(lambda x: word_count(x))
+
+#Preparing Data for algorithm - Predicting Body type based on lifestyle choices, Zodiac Sign, and 'me'/'I' count in essays
+features = df[['sign_code','drinks_code', 'smokes_code', 'drugs_code', 'body_code', 'diet_code', 'sex_code', 'essay_me_i_count']] #me_i_count
+features_zodiac = df[['sign_code','drinks_code', 'smokes_code', 'drugs_code', 'body_code', 'diet_code', 'essay_me_i_count', 'essay_len', 'essay_avg_wlen']]
+
+subset_n = ['sign_code','drinks_code', 'smokes_code', 'drugs_code', 'body_code', 'diet_code', 'sex_code', 'essay_me_i_count']
+subset_zodiac = ['sign_code','drinks_code', 'smokes_code', 'drugs_code', 'body_code', 'diet_code', 'essay_len', 'essay_me_i_count', 'essay_avg_wlen']
+
+features.dropna(subset=subset_n, inplace=True)
+features_zodiac.dropna(subset=subset_zodiac, inplace=True)
+
+features = features.astype({'sign_code': 'int','drinks_code': 'int', 'smokes_code': 'int', 'drugs_code': 'int', 'body_code': 'int', 'diet_code': 'int', 'sex_code': 'int', 'essay_me_i_count': 'int'})
+features_zodiac = features_zodiac.astype({'sign_code': 'int','drinks_code': 'int', 'smokes_code': 'int', 'drugs_code': 'int', 'body_code': 'int', 'diet_code': 'int', 'essay_len': 'int', 'essay_me_i_count': 'int', 'essay_avg_wlen': 'int'})
+
+features_scaled = features[['sign_code', 'drinks_code', 'smokes_code', 'drugs_code', 'diet_code', 'sex_code', 'essay_me_i_count']]
+features_scaled_zodiac = features_zodiac[['drinks_code', 'smokes_code', 'drugs_code', 'body_code', 'diet_code', 'essay_me_i_count', 'essay_len', 'essay_avg_wlen']]
+
+##print(features.isna().any())#test#
+x = features_scaled.values
+x2 = features_scaled_zodiac.values
+
+min_max_scaler = preprocessing.MinMaxScaler()
+min_max_scaler2 = preprocessing.MinMaxScaler()
+
+x_scaled = min_max_scaler.fit_transform(x)
+x2_scaled = min_max_scaler2.fit_transform(x2)
+
+features_scaled = pd.DataFrame(x_scaled, columns = features_scaled.columns)
+features_scaled_zodiac = pd.DataFrame(x2_scaled, columns = features_scaled_zodiac.columns)
+
+x_train, x_test, y_train, y_test = train_test_split(features_scaled, features.body_code, test_size=0.2, random_state=10) ##
+x2_train, x2_test, y2_train, y2_test = train_test_split(features_scaled_zodiac, features_zodiac.sign_code, test_size=0.2, random_state=10)
+
+#Exploring K values for highest score
+k_vals = list(range(1,100))
+scores_lst = []
+scores_lst2 = []
+for k in k_vals:
+    classifier = KNeighborsClassifier(n_neighbors = k)
+    classifier2 = KNeighborsClassifier(n_neighbors = k)
+    classifier.fit(x_train,y_train)
+    classifier2.fit(x2_train,y2_train)
+    score = classifier.score(x_test, y_test)
+    score2 = classifier2.score(x2_test,y2_test)
+    scores_lst.append(score)
+    scores_lst2.append(score2)
+    #print('score:')
+    #print(score)
+plt.plot(k_vals, scores_lst2) #K-Value for Zodiac Sign Score, score was < 10% 
+plt.xlabel('K Value in KNN Classifier')
+plt.ylabel('Score/Accuracy')
+plt.title('KNN K value vs Accuracy Score')
+#plt.show()
+#plt.clf()
+
+#Test for tuning
+
+k = max(scores_lst)
+print(scores_lst.index(k)) #Compared with .best_params_ method
+#
+#
+acc = []
+recll = []
+prec = []
+f1 = []
+for k in k_vals:
+    knn_z = KNeighborsClassifier(n_neighbors = k)
+    knn_z.fit(x2_train,y2_train)
+    predictions = knn_z.predict(x2_test)
+    a = accuracy_score(y_test, predictions)
+    acc.append(a)
+    b = recall_score(y_test, predictions, average='macro')
+    recll.append(b)
+    c = precision_score(y_test, predictions, average='macro')
+    prec.append(c)
+    d = f1_score(y_test, predictions, average='macro')
+    f1.append(d)
+
+fig, axs = plt.subplots(2, 2)
+axs[0, 0].plot(k_vals, acc)
+axs[0, 0].set_title('Accuracy')
+axs[0, 1].plot(k_vals, recll, 'tab:orange')
+axs[0, 1].set_title('Recall')
+axs[1, 0].plot(k_vals, prec, 'tab:green')
+axs[1, 0].set_title('Precision')
+axs[1, 1].plot(k_vals, f1, 'tab:red')
+axs[1, 1].set_title('F1 Score')
+
+for ax in axs.flat:
+    ax.set(xlabel='K-Value', ylabel='Score')
+
+# Hide x labels and tick labels for top plots and y ticks for right plots.
+for ax in axs.flat:
+    ax.label_outer()
+plt.show()
+plt.clf()
+#
+#
+knn = KNeighborsClassifier(n_neighbors = 18)
+knn.fit(x_train,y_train)
+cv_scores = cross_val_score(knn, features_scaled, features.body_code, cv=5) ##
+print(cv_scores)
+print('cv_scores mean: {}'.format(np.mean(cv_scores)))
+
+knn2 = KNeighborsClassifier()
+parameter_grid = {'n_neighbors': np.arange(1,25)}
+knn_gscv = GridSearchCV(knn2, parameter_grid, cv=5)
+knn_gscv.fit(features_scaled, features.body_code) ##
+print(knn_gscv.best_params_) #Provides K Value for prior classifier
+
+### Model Accuracy, Recall, Precision, F1 Score Calculation
+predictions = knn.predict(x_test)
+print(accuracy_score(y_test, predictions), recall_score(y_test, predictions, average='macro'), precision_score(y_test, predictions, average='macro'), f1_score(y_test, predictions, average='macro'))
+
+
+## Body type prediction with features ['sign_code','drinks_code', 'smokes_code', 'drugs_code', 'body_code', 'diet_code', 'sex_code', 'essay_me_i_count']
+#results: cv_scores mean: 0.3051948051948052 ; Grid search: {'n_neighbors': 18} ; model/recall/prec/f1: 0.24675324675324675 0.08333333333333333 0.06264019505398816 0.07060399917542774
+
+##Education prediction with features ['essay_me_i_count', 'essay_avg_wlen', 'essay_len']
+#results: cv_scores mean: 0.4864397796673214; Grid search:{'n_neighbors': 24}; model/recall/prec/f1: 0.48190172543135784 0.16710779729861466 0.1927892991027529 0.13113349751217784
+
+##Sexual-Orientation prediction with features ['sex_code', 'edu_code', 'income_code']
+#results: cv_scores mean: 0.5865562511560085; Grid search:{'n_neighbors': 24}; model/recall/prec/f1: 0.5769879969992499 0.4976335368461481 0.4793740306188769 0.3882765016483495
+
+
